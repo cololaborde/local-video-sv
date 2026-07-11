@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Servidor de Videos</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #121212;
+            color: white;
+            font-family: Arial;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .lista {
+            width: 300px;
+            overflow: auto;
+            background: #1e1e1e;
+            padding: 15px;
+        }
+
+        .lista button {
+
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 12px;
+
+            border: none;
+
+            background: #333;
+            color: white;
+
+            cursor: pointer;
+            border-radius: 6px;
+            text-align: left;
+        }
+
+        .lista button:hover {
+            background: #555;
+        }
+
+        .player {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        video {
+            width: 90%;
+            max-height: 90%;
+            background: black;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="lista">
+            <h2>Videos</h2>
+            <div id="videos"></div>
+        </div>
+
+        <div class="player">
+            <video id="player" controls></video>
+        </div>
+
+    </div>
+
+    <script>
+
+        const lista = document.getElementById("videos");
+        const player = document.getElementById("player");
+
+        fetch("/api/videos")
+            .then(r => r.json())
+            .then(videos => {
+
+                videos.forEach(item => {
+
+                    const b = document.createElement("button");
+
+                    b.textContent = item.title;
+
+                    b.onclick = () => {
+
+                        player.pause();
+
+                        player.innerHTML = "";
+
+                        player.src = "/video/" + item.id;
+
+                        if (item.subtitle) {
+
+                            const track = document.createElement("track");
+
+                            track.kind = "subtitles";
+                            track.label = "Español";
+                            track.srclang = "es";
+                            track.default = true;
+                            track.src = "/subtitle/" + item.id;
+
+                            player.appendChild(track);
+
+                        }
+
+                        player.load();
+                        player.play();
+
+                    };
+
+                    lista.appendChild(b);
+
+                });
+
+            });
+    </script>
+
+</body>
+
+</html>
