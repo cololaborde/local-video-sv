@@ -3,154 +3,215 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
+import { execFile } from "child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 
-const VIDEO_DIR = path.join(__dirname, "videos");
+const VIDEO_DIR = path.resolve(__dirname, "videos");
 
 app.use(express.static(path.join(__dirname, "public")));
 
 const VIDEO_EXT = [".mp4", ".mkv", ".webm", ".mov", ".avi"];
 const SUB_EXT = [".srt"];
 
-function getLibrary() {
-
-    if (!fs.existsSync(VIDEO_DIR))
-        return [];
-
-    return fs.readdirSync(VIDEO_DIR, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .map(dir => {
-
-            const folder = path.join(VIDEO_DIR, dir.name);
-
-            const files = fs.readdirSync(folder);
-
-            const video = files.find(f =>
-                VIDEO_EXT.includes(path.extname(f).toLowerCase())
-            );
-
-            const subtitle = files.find(f =>
-                SUB_EXT.includes(path.extname(f).toLowerCase())
-            );
-
-            if (!video)
-                return null;
-
-            return {
-                id: encodeURIComponent(dir.name),
-                title: dir.name,
-                video,
-                subtitle
-            };
-
-        })
-        .filter(Boolean);
-
+function toUrlPath(p) {
+    return p.split(path.sep).join("/");
 }
 
-app.get("/api/videos", (req, res) => {
-    res.json(getLibrary());
-});
+function safeResolve(relative = "") {
+    const target = path.resolve(VIDEO_DIR, relative);
+    if (target !== VIDEO_DIR && !target.startsWith(VIDEO_DIR + path.sep)) {
+        throw new Error("Ruta inválida");
+    }
+    return target;
+}
 
-app.get("/video/:folder", (req, res) => {
+function findSubtitle(dir, videoFile) {
+    const files = fs.readdirSync(dir);
+    const base = path.basename(videoFile, path.extname(videoFile));
 
-    const folder = decodeURIComponent(req.params.folder);
-
-    const dir = path.join(VIDEO_DIR, folder);
-
-    if (!fs.existsSync(dir))
-        return res.sendStatus(404);
-
-    const video = fs.readdirSync(dir).find(f =>
-        VIDEO_EXT.includes(path.extname(f).toLowerCase())
+    let sub = files.find(f =>
+        SUB_EXT.includes(path.extname(f).toLowerCase()) &&
+        path.basename(f, path.extname(f)) === base
     );
 
-    if (!video)
-        return res.sendStatus(404);
+    if (!sub) {
+        sub = files.find(f => SUB_EXT.includes(path.extname(f).toLowerCase()));
+    }
 
-    const file = path.join(dir, video);
+    return sub || null;
+}
 
-    res.writeHead(200, {
-        "Content-Type": "video/mp4",
-        "Transfer-Encoding": "chunked",
-        "Accept-Ranges": "none"
-    });
 
-    const ffmpeg = spawn("ffmpeg", [
-        "-i", file,
+app.get("/api/browse", (req, res) => {
 
-        // Copia el video si ya es H264
-        "-c:v", "copy",
+    try {
+        const rel = req.query.path ? String(req.query.path) : "";
+        const dir = safeResolve(rel);
 
-        // Convierte el audio a AAC
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-ac", "2",
+        if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+            return res.status(404).json({ error: "Directorio no encontrado" });
+        }
 
-        // Optimizado para streaming
-        "-movflags", "frag_keyframe+empty_moov",
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
 
-        "-f", "mp4",
+        const dirs = [];
+        const videos = [];
 
-        "-"
-    ]);
+        for (const entry of entries) {
 
-    ffmpeg.stdout.pipe(res);
+            const entryRel = rel ? path.join(rel, entry.name) : entry.name;
 
-    ffmpeg.stderr.on("data", d => {
-        console.log(d.toString());
-    });
+            if (entry.isDirectory()) {
+                dirs.push({
+                    name: entry.name,
+                    path: toUrlPath(entryRel)
+                });
+                continue;
+            }
 
-    ffmpeg.on("close", () => {
-        res.end();
-    });
+            const ext = path.extname(entry.name).toLowerCase();
 
-    req.on("close", () => {
-        ffmpeg.kill("SIGKILL");
-    });
+            if (VIDEO_EXT.includes(ext)) {
+                const subtitle = findSubtitle(dir, entry.name);
+                videos.push({
+                    name: entry.name,
+                    path: toUrlPath(entryRel),
+                    subtitlePath: subtitle
+                        ? toUrlPath(rel ? path.join(rel, subtitle) : subtitle)
+                        : null
+                });
+            }
+        }
+
+        dirs.sort((a, b) => a.name.localeCompare(b.name));
+        videos.sort((a, b) => a.name.localeCompare(b.name));
+
+        res.json({ path: toUrlPath(rel), dirs, videos });
+
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
 
 });
 
-app.get("/subtitle/:folder", (req, res) => {
+function getVideoCodec(file) {
+    return new Promise((resolve, reject) => {
+        execFile("ffprobe", [
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            file
+        ], (err, stdout) => {
+            if (err) return reject(err);
+            resolve(stdout.trim());
+        });
+    });
+}
 
-    const folder = decodeURIComponent(req.params.folder);
+app.get("/video", async (req, res) => {
 
-    const dir = path.join(VIDEO_DIR, folder);
+    try {
+        const rel = req.query.path ? String(req.query.path) : "";
+        if (!rel) return res.sendStatus(400);
 
-    if (!fs.existsSync(dir))
-        return res.sendStatus(404);
+        const file = safeResolve(rel);
 
-    const subtitle = fs.readdirSync(dir).find(f =>
-        SUB_EXT.includes(path.extname(f).toLowerCase())
-    );
+        if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+            return res.sendStatus(404);
+        }
 
-    if (!subtitle)
-        return res.sendStatus(404);
+        let codec;
+        try {
+            codec = await getVideoCodec(file);
+        } catch {
+            codec = null;
+        }
 
-    res.type("text/vtt");
+        const COPYABLE_CODECS = ["h264"];
 
-    const srt = fs.readFileSync(path.join(dir, subtitle), "utf8");
+        const videoArgs = COPYABLE_CODECS.includes(codec)
+            ? ["-c:v", "copy"]
+            : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"];
 
-    // Conversión SRT -> VTT
-    const vtt =
-        "WEBVTT\n\n" +
-        srt.replace(/\r/g, "")
-            .replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, "$1.$2");
+        res.writeHead(200, {
+            "Content-Type": "video/mp4",
+            "Transfer-Encoding": "chunked",
+            "Accept-Ranges": "none"
+        });
 
-    res.send(vtt);
+        const ffmpeg = spawn("ffmpeg", [
+            "-i", file,
+
+            ...videoArgs,
+
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-ac", "2",
+
+            "-movflags", "frag_keyframe+empty_moov",
+
+            "-f", "mp4",
+
+            "-"
+        ]);
+
+        ffmpeg.stdout.pipe(res);
+
+        ffmpeg.stderr.on("data", d => {
+            console.log(d.toString());
+        });
+
+        ffmpeg.on("close", () => {
+            res.end();
+        });
+
+        req.on("close", () => {
+            ffmpeg.kill("SIGKILL");
+        });
+
+    } catch (e) {
+        res.sendStatus(400);
+    }
+
+});
+
+app.get("/subtitle", (req, res) => {
+
+    try {
+        const rel = req.query.path ? String(req.query.path) : "";
+        if (!rel) return res.sendStatus(400);
+
+        const file = safeResolve(rel);
+
+        if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+            return res.sendStatus(404);
+        }
+
+        res.type("text/vtt");
+
+        const srt = fs.readFileSync(file, "utf8");
+
+        const vtt =
+            "WEBVTT\n\n" +
+            srt.replace(/\r/g, "")
+                .replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, "$1.$2");
+
+        res.send(vtt);
+
+    } catch (e) {
+        res.sendStatus(400);
+    }
 
 });
 
 const PORT = 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
-
     console.log(`Servidor iniciado`);
-
     console.log(`http://localhost:${PORT}`);
-
 });

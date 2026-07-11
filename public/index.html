@@ -13,40 +13,74 @@
             font-family: Arial;
         }
 
-        h1 {
-            text-align: center;
-        }
-
         .container {
             display: flex;
             height: 100vh;
         }
 
         .lista {
-            width: 300px;
+            width: 320px;
             overflow: auto;
             background: #1e1e1e;
             padding: 15px;
+            box-sizing: border-box;
         }
 
-        .lista button {
+        .breadcrumb {
+            font-size: 13px;
+            color: #aaa;
+            margin-bottom: 12px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
 
+        .breadcrumb span {
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .breadcrumb span:hover {
+            color: #fff;
+        }
+
+        .item {
             width: 100%;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             padding: 12px;
-
             border: none;
-
-            background: #333;
             color: white;
-
             cursor: pointer;
             border-radius: 6px;
             text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
-        .lista button:hover {
+        .item.dir {
+            background: #2a3b55;
+        }
+
+        .item.dir:hover {
+            background: #35486b;
+        }
+
+        .item.video {
+            background: #333;
+        }
+
+        .item.video:hover {
             background: #555;
+        }
+
+        .item.video.active {
+            background: #3a6ea5;
+        }
+
+        .empty {
+            color: #777;
+            font-size: 13px;
+            padding: 10px 0;
         }
 
         .player {
@@ -54,6 +88,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
+            background: #000;
         }
 
         video {
@@ -70,8 +105,8 @@
     <div class="container">
 
         <div class="lista">
-            <h2>Videos</h2>
-            <div id="videos"></div>
+            <div class="breadcrumb" id="breadcrumb"></div>
+            <div id="entries"></div>
         </div>
 
         <div class="player">
@@ -82,51 +117,103 @@
 
     <script>
 
-        const lista = document.getElementById("videos");
+        const entriesEl = document.getElementById("entries");
+        const breadcrumbEl = document.getElementById("breadcrumb");
         const player = document.getElementById("player");
 
-        fetch("/api/videos")
-            .then(r => r.json())
-            .then(videos => {
+        let currentPath = "";
 
-                videos.forEach(item => {
+        function playVideo(item) {
 
-                    const b = document.createElement("button");
+            player.pause();
+            player.innerHTML = "";
+            player.src = "/video?path=" + encodeURIComponent(item.path);
 
-                    b.textContent = item.title;
+            if (item.subtitlePath) {
+                const track = document.createElement("track");
+                track.kind = "subtitles";
+                track.label = "Español";
+                track.srclang = "es";
+                track.default = true;
+                track.src = "/subtitle?path=" + encodeURIComponent(item.subtitlePath);
+                player.appendChild(track);
+            }
 
-                    b.onclick = () => {
+            player.load();
+            player.play();
 
-                        player.pause();
+            document.querySelectorAll(".item.video").forEach(b =>
+                b.classList.toggle("active", b.dataset.path === item.path)
+            );
+        }
 
-                        player.innerHTML = "";
+        function renderBreadcrumb(p) {
 
-                        player.src = "/video/" + item.id;
+            breadcrumbEl.innerHTML = "";
 
-                        if (item.subtitle) {
+            const rootSpan = document.createElement("span");
+            rootSpan.textContent = "Videos";
+            rootSpan.onclick = () => loadDir("");
+            breadcrumbEl.appendChild(rootSpan);
 
-                            const track = document.createElement("track");
+            if (!p) return;
 
-                            track.kind = "subtitles";
-                            track.label = "Español";
-                            track.srclang = "es";
-                            track.default = true;
-                            track.src = "/subtitle/" + item.id;
+            const parts = p.split("/");
+            let acc = "";
 
-                            player.appendChild(track);
+            parts.forEach(part => {
+                acc = acc ? acc + "/" + part : part;
+                breadcrumbEl.appendChild(document.createTextNode(" / "));
+                const span = document.createElement("span");
+                span.textContent = part;
+                const target = acc;
+                span.onclick = () => loadDir(target);
+                breadcrumbEl.appendChild(span);
+            });
+        }
 
-                        }
+        function loadDir(p) {
 
-                        player.load();
-                        player.play();
+            fetch("/api/browse?path=" + encodeURIComponent(p))
+                .then(r => r.json())
+                .then(data => {
 
-                    };
+                    if (data.error) {
+                        entriesEl.innerHTML = `<div class="empty">${data.error}</div>`;
+                        return;
+                    }
 
-                    lista.appendChild(b);
+                    currentPath = data.path;
+                    renderBreadcrumb(currentPath);
+                    entriesEl.innerHTML = "";
+
+                    if (data.dirs.length === 0 && data.videos.length === 0) {
+                        entriesEl.innerHTML = `<div class="empty">Carpeta vacía</div>`;
+                        return;
+                    }
+
+                    data.dirs.forEach(dir => {
+                        const b = document.createElement("button");
+                        b.className = "item dir";
+                        b.textContent = "📁 " + dir.name;
+                        b.onclick = () => loadDir(dir.path);
+                        entriesEl.appendChild(b);
+                    });
+
+                    data.videos.forEach(item => {
+                        const b = document.createElement("button");
+                        b.className = "item video";
+                        b.dataset.path = item.path;
+                        b.textContent = "🎬 " + item.name;
+                        b.onclick = () => playVideo(item);
+                        entriesEl.appendChild(b);
+                    });
 
                 });
+        }
 
-            });
+        loadDir("");
+
     </script>
 
 </body>
