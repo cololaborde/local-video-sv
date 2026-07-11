@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Servidor de Videos</title>
     <link rel="stylesheet" href="/style.css">
 </head>
@@ -12,12 +13,33 @@
     <div class="container">
 
         <div class="lista">
-            <div class="breadcrumb" id="breadcrumb"></div>
-            <div id="entries"></div>
+
+            <div class="brand">
+                <div class="brand-mark">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M4 5C4 4.44772 4.44772 4 5 4H12L14 7H19C19.5523 7 20 7.44772 20 8V18C20 18.5523 19.5523 19 19 19H5C4.44772 19 4 18.5523 4 18V5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                    </svg>
+                    Biblioteca
+                </div>
+                <div class="brand-sub" id="counts">cargando…</div>
+            </div>
+
+            <div class="breadcrumb-wrap">
+                <div class="breadcrumb" id="breadcrumb"></div>
+            </div>
+
+            <div class="entries-scroll" id="entries"></div>
+
         </div>
 
         <div class="player">
-            <video id="player" controls></video>
+            <video id="player" controls style="display:none;"></video>
+            <div class="player-empty" id="playerEmpty">
+                <svg width="46" height="46" viewBox="0 0 24 24" fill="none">
+                    <path d="M8 5.5V18.5L19 12L8 5.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                </svg>
+                Elegí un video de la lista para reproducirlo
+            </div>
         </div>
 
     </div>
@@ -26,11 +48,22 @@
 
         const entriesEl = document.getElementById("entries");
         const breadcrumbEl = document.getElementById("breadcrumb");
+        const countsEl = document.getElementById("counts");
         const player = document.getElementById("player");
+        const playerEmpty = document.getElementById("playerEmpty");
 
-        let currentPath = "";
+        const ICON_DIR = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 5C4 4.44772 4.44772 4 5 4H10L12 7H19C19.5523 7 20 7.44772 20 8V18C20 18.5523 19.5523 19 19 19H5C4.44772 19 4 18.5523 4 18V5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+
+        const ICON_VIDEO = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="13" height="12" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M16 10.5L20.5 8V16L16 13.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+
+        const ICON_CHEVRON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 6L15 12L9 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+        const EQ = `<div class="eq"><span></span><span></span><span></span></div>`;
 
         function playVideo(item) {
+
+            playerEmpty.style.display = "none";
+            player.style.display = "block";
 
             player.pause();
             player.innerHTML = "";
@@ -49,9 +82,12 @@
             player.load();
             player.play();
 
-            document.querySelectorAll(".item.video").forEach(b =>
-                b.classList.toggle("active", b.dataset.path === item.path)
-            );
+            document.querySelectorAll(".item.video").forEach(b => {
+                const isActive = b.dataset.path === item.path;
+                b.classList.toggle("active", isActive);
+                const iconSlot = b.querySelector(".icon");
+                iconSlot.innerHTML = isActive ? EQ : ICON_VIDEO;
+            });
         }
 
         function renderBreadcrumb(p) {
@@ -59,7 +95,9 @@
             breadcrumbEl.innerHTML = "";
 
             const rootSpan = document.createElement("span");
+            rootSpan.className = "crumb root";
             rootSpan.textContent = "Videos";
+            rootSpan.tabIndex = 0;
             rootSpan.onclick = () => loadDir("");
             breadcrumbEl.appendChild(rootSpan);
 
@@ -68,54 +106,105 @@
             const parts = p.split("/");
             let acc = "";
 
-            parts.forEach(part => {
+            parts.forEach((part, i) => {
                 acc = acc ? acc + "/" + part : part;
-                breadcrumbEl.appendChild(document.createTextNode(" / "));
+
+                const sep = document.createElement("span");
+                sep.className = "sep";
+                sep.textContent = "···";
+                breadcrumbEl.appendChild(sep);
+
+                const isLast = i === parts.length - 1;
                 const span = document.createElement("span");
+                span.className = "crumb" + (isLast ? " current" : "");
                 span.textContent = part;
-                const target = acc;
-                span.onclick = () => loadDir(target);
+                span.tabIndex = 0;
+
+                if (!isLast) {
+                    const target = acc;
+                    span.onclick = () => loadDir(target);
+                }
+
                 breadcrumbEl.appendChild(span);
             });
         }
 
         function loadDir(p) {
 
+            entriesEl.innerHTML = `<div class="empty-state">Cargando…</div>`;
+
             fetch("/api/browse?path=" + encodeURIComponent(p))
                 .then(r => r.json())
                 .then(data => {
 
                     if (data.error) {
-                        entriesEl.innerHTML = `<div class="empty">${data.error}</div>`;
+                        entriesEl.innerHTML = `
+                            <div class="empty-state">
+                                <strong>No se pudo abrir esta carpeta</strong>
+                                ${data.error}
+                            </div>`;
                         return;
                     }
 
-                    currentPath = data.path;
-                    renderBreadcrumb(currentPath);
+                    renderBreadcrumb(data.path);
                     entriesEl.innerHTML = "";
 
+                    countsEl.textContent =
+                        `${data.dirs.length} carpeta${data.dirs.length === 1 ? "" : "s"} · ` +
+                        `${data.videos.length} video${data.videos.length === 1 ? "" : "s"}`;
+
                     if (data.dirs.length === 0 && data.videos.length === 0) {
-                        entriesEl.innerHTML = `<div class="empty">Carpeta vacía</div>`;
+                        entriesEl.innerHTML = `
+                            <div class="empty-state">
+                                <strong>Carpeta vacía</strong>
+                                Copiá videos o subcarpetas dentro de <code>videos/</code> para verlos acá.
+                            </div>`;
                         return;
                     }
 
-                    data.dirs.forEach(dir => {
-                        const b = document.createElement("button");
-                        b.className = "item dir";
-                        b.textContent = "📁 " + dir.name;
-                        b.onclick = () => loadDir(dir.path);
-                        entriesEl.appendChild(b);
-                    });
+                    if (data.dirs.length) {
+                        const label = document.createElement("div");
+                        label.className = "section-label";
+                        label.textContent = "Carpetas";
+                        entriesEl.appendChild(label);
 
-                    data.videos.forEach(item => {
-                        const b = document.createElement("button");
-                        b.className = "item video";
-                        b.dataset.path = item.path;
-                        b.textContent = "🎬 " + item.name;
-                        b.onclick = () => playVideo(item);
-                        entriesEl.appendChild(b);
-                    });
+                        data.dirs.forEach(dir => {
+                            const b = document.createElement("button");
+                            b.className = "item dir";
+                            b.innerHTML = `
+                                <span class="icon">${ICON_DIR}</span>
+                                <span class="name">${dir.name}</span>
+                                <span class="chevron">${ICON_CHEVRON}</span>`;
+                            b.onclick = () => loadDir(dir.path);
+                            entriesEl.appendChild(b);
+                        });
+                    }
 
+                    if (data.videos.length) {
+                        const label = document.createElement("div");
+                        label.className = "section-label";
+                        label.textContent = "Videos";
+                        entriesEl.appendChild(label);
+
+                        data.videos.forEach(item => {
+                            const b = document.createElement("button");
+                            b.className = "item video";
+                            b.dataset.path = item.path;
+                            b.innerHTML = `
+                                <span class="icon">${ICON_VIDEO}</span>
+                                <span class="name">${item.name}</span>`;
+                            b.onclick = () => playVideo(item);
+                            entriesEl.appendChild(b);
+                        });
+                    }
+
+                })
+                .catch(() => {
+                    entriesEl.innerHTML = `
+                        <div class="empty-state">
+                            <strong>No se pudo conectar con el servidor</strong>
+                            Revisá que esté corriendo y volvé a intentar.
+                        </div>`;
                 });
         }
 
