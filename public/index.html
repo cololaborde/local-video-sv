@@ -17,7 +17,9 @@
             <div class="brand">
                 <div class="brand-mark">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <path d="M4 5C4 4.44772 4.44772 4 5 4H12L14 7H19C19.5523 7 20 7.44772 20 8V18C20 18.5523 19.5523 19 19 19H5C4.44772 19 4 18.5523 4 18V5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                        <path
+                            d="M4 5C4 4.44772 4.44772 4 5 4H12L14 7H19C19.5523 7 20 7.44772 20 8V18C20 18.5523 19.5523 19 19 19H5C4.44772 19 4 18.5523 4 18V5Z"
+                            stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
                     </svg>
                     Biblioteca
                 </div>
@@ -36,15 +38,24 @@
             <video id="player" controls style="display:none;"></video>
             <div class="player-empty" id="playerEmpty">
                 <svg width="46" height="46" viewBox="0 0 24 24" fill="none">
-                    <path d="M8 5.5V18.5L19 12L8 5.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                    <path d="M8 5.5V18.5L19 12L8 5.5Z" stroke="currentColor" stroke-width="1.4"
+                        stroke-linejoin="round" />
                 </svg>
                 Elegí un video de la lista para reproducirlo
             </div>
         </div>
 
+        <div class="player-actions">
+            <a id="downloadSubtitle" download style="display:none">
+                Descargar subtítulo
+            </a>
+        </div>
+
     </div>
 
     <script>
+
+        const downloadSubtitle = document.getElementById("downloadSubtitle");
 
         const entriesEl = document.getElementById("entries");
         const breadcrumbEl = document.getElementById("breadcrumb");
@@ -61,6 +72,15 @@
         const EQ = `<div class="eq"><span></span><span></span><span></span></div>`;
 
         function playVideo(item) {
+
+            if (item.subtitlePath) {
+                downloadSubtitle.href =
+                    "/subtitle/download?path=" + encodeURIComponent(item.subtitlePath);
+                downloadSubtitle.style.display = "";
+            } else {
+                downloadSubtitle.removeAttribute("href");
+                downloadSubtitle.style.display = "none";
+            }
 
             playerEmpty.style.display = "none";
             player.style.display = "block";

@@ -14,6 +14,7 @@ const VIDEO_DIR = path.resolve(__dirname, "videos");
 
 app.use(express.static(path.join(__dirname, "public")));
 
+
 const VIDEO_EXT = [".mp4", ".mkv", ".webm", ".mov", ".avi"];
 const SUB_EXT = [".srt"];
 
@@ -180,8 +181,7 @@ app.get("/video", async (req, res) => {
 
 });
 
-app.get("/subtitle", (req, res) => {
-
+app.get("/subtitle/download", (req, res) => {
     try {
         const rel = req.query.path ? String(req.query.path) : "";
         if (!rel) return res.sendStatus(400);
@@ -192,21 +192,11 @@ app.get("/subtitle", (req, res) => {
             return res.sendStatus(404);
         }
 
-        res.type("text/vtt");
+        res.download(file);
 
-        const srt = fs.readFileSync(file, "utf8");
-
-        const vtt =
-            "WEBVTT\n\n" +
-            srt.replace(/\r/g, "")
-                .replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, "$1.$2");
-
-        res.send(vtt);
-
-    } catch (e) {
+    } catch {
         res.sendStatus(400);
     }
-
 });
 
 const PORT = 3000;
